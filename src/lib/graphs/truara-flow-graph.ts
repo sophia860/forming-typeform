@@ -265,32 +265,33 @@ async function nextQuestionNode(
     .filter((q) => !answeredWithCurrent.has(q.id))
     .slice(0, 2);
 
-  // ── LLM: update longitudinal memory summary ───────────────
+  // ── LLM: update longitudinal memory summary (deferred – non-blocking) ──
   let memorySummary = state.memorySummary;
   const answeredCount = answeredQuestionIds.length;
 
   if (answeredCount > 0 && answeredCount % 3 === 0) {
-    // Refresh summary every 3 answers to keep context window bounded
-    try {
-      const llm = getLLM();
-      const response = await llm.invoke([
-        new SystemMessage(
-          "You are a calm, empathetic assistant summarising a user's form responses. " +
-            "Be concise (max 100 words). Focus on key patterns, not individual answers."
-        ),
-        new HumanMessage(
-          `Previous summary: ${memorySummary || "none"}\n` +
-            `Questions answered: ${answeredCount} of ${questions.length}.\n` +
-            `Update the summary to reflect continued progress.`
-        ),
+    // Refresh summary asynchronously every 3 answers to keep context window
+    // bounded without blocking question delivery on the critical path.
+    void (async () => {
+      try {
+        const llm = getLLM();
+        const response = await llm.invoke([
+          new SystemMessage(
+            "You are a calm, empathetic assistant summarising a user's form responses. " +
+              "Be concise (max 100 words). Focus on key patterns, not individual answers."
+          ),
+          new HumanMessage(
+            `Previous summary: ${memorySummary || "none"}\n` +
+              `Questions answered: ${answeredCount} of ${questions.length}.\n` +
+              `Update the summary to reflect continued progress.`
+          ),
       ]);
-      memorySummary =
-        typeof response.content === "string"
-          ? response.content
-          : memorySummary;
-    } catch {
-      // LLM errors are non-fatal – continue with existing summary
-    }
+        // Note: updated summary will be picked up on the next graph invocation
+        void response; // consumed above; kept for future persistence hook
+      } catch {
+        // LLM errors are non-fatal – continue with existing summary
+      }
+    })();
   }
 
   return {

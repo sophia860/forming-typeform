@@ -115,7 +115,8 @@ const GetNextQuestionSchema = z.object({
 
 /** Deterministic HMAC-SHA256 fingerprint – no raw PII stored */
 async function fingerprintValue(raw: string): Promise<string> {
-  const secret = process.env.TRUARA_FINGERPRINT_SECRET ?? "truara-default";
+  const secret = process.env.TRUARA_FINGERPRINT_SECRET;
+  if (!secret) throw new Error("TRUARA_FINGERPRINT_SECRET env var is required");
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     "raw",
@@ -130,7 +131,8 @@ async function fingerprintValue(raw: string): Promise<string> {
 
 /** Symmetric encryption of sensitive text with AES-GCM + env key */
 async function encryptValue(plaintext: string): Promise<Uint8Array> {
-  const secret = process.env.TRUARA_ENCRYPTION_KEY ?? "truara-32-byte-default-key!!!!!";
+  const secret = process.env.TRUARA_ENCRYPTION_KEY;
+  if (!secret) throw new Error("TRUARA_ENCRYPTION_KEY env var is required");
   const keyBytes = new TextEncoder().encode(secret).slice(0, 32);
   const cryptoKey = await crypto.subtle.importKey(
     "raw",
@@ -339,8 +341,8 @@ export const startSubmission = createServerFn({ method: "POST" })
 
     if (subErr) throw new Error(subErr.message);
 
-    // Upsert memory thread
-    await supabase.from("truara_memory_threads").upsert(
+    // Upsert memory thread (non-fatal: submission is already created)
+    const { error: memErr } = await supabase.from("truara_memory_threads").upsert(
       {
         flow_id: data.flowId,
         respondent_id: respondentId,
@@ -348,6 +350,9 @@ export const startSubmission = createServerFn({ method: "POST" })
       },
       { onConflict: "flow_id,respondent_id", ignoreDuplicates: false }
     );
+    if (memErr) {
+      console.error("Memory thread upsert failed:", memErr.message);
+    }
 
     return { submissionId: submission.id, lgThreadId };
   });

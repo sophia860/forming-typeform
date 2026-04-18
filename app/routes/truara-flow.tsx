@@ -543,14 +543,16 @@ function TruraFlowRoute() {
         });
 
         setAnsweredCount((c) => c + 1);
-        questionFlow.lastAnsweredRef.current = questionFlow.currentQuestion!.id;
+        // Capture question id before state may change
+        const answeredQuestionId = questionFlow.currentQuestion.id;
+        questionFlow.lastAnsweredRef.current = answeredQuestionId;
 
         setPhase("transitioning");
 
         // Fetch next question via LangGraph
         const result = await questionFlow.fetchNext(
           session.submissionId,
-          questionFlow.currentQuestion.id
+          answeredQuestionId
         );
 
         if (result?.isComplete) {
